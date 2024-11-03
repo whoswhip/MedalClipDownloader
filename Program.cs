@@ -102,10 +102,7 @@ class Program
         }
         Console.Title = $"Downloaded {totalBytesDownloaded / 1024 / 1024} MB in {totalElapsedTime:0.00} seconds with an average download speed of {(totalBytesDownloaded / 1024d / 1024d) / totalElapsedTime:0.00} MB/s";
         Thread.Sleep(1000);
-        Task.Run(() =>
-        {
-            Main(null);
-        });
+        await Main(null);
     }
     static async Task DownloadClip()
     {
