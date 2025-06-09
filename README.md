@@ -1,7 +1,8 @@
 # MedalTV Downloader Rusted
 This is a simple port of the C# downloader to rust
 ### Getting Started
-
+You can either build it or use the [pre-compiled binaries in releases](https://github.com/whoswhip/MedalClipDownloader/releases)
+#### Building
 1. **Prerequisites**  
 Make sure you have Rust installed.  
 ```sh
