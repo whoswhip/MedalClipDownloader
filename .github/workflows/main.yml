@@ -13,66 +13,86 @@ on:
         type: string
 
 jobs:
-  native:
+  build-linux:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target:
-          - x86_64-pc-windows-msvc
-          - x86_64-apple-darwin
-          - x86_64-unknown-linux-gnu
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.inputs.branch || github.ref_name }}
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-unknown-linux-gnu
 
-      - name: Cache Rust dependencies
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.target }}-
+      - name: Build (Linux)
+        run: cargo build --release --target x86_64-unknown-linux-gnu --verbose
 
-      - name: Build project
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Upload artifacts
+      - name: Upload Linux binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/mtv-rusted
+          name: linux-x86_64
+          path: target/x86_64-unknown-linux-gnu/release/mtv-rusted
 
-  musl:
-    runs-on: ubuntu-latest
-    needs: native
-    if: ${{ always() }}  # builds even if native fails
+  build-windows:
+    runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.inputs.branch || github.ref_name }}
 
-      - name: Build with MUSL in Docker
-        run: |
-          docker run --rm -u root \
-            -v "${{ github.workspace }}:/home/rust/src" \
-            ekidd/rust-musl-builder \
-            cargo build --release
-
-      - name: Upload MUSL artifact
-        run: |
-          mkdir -p target/x86_64-unknown-linux-musl/release
-          cp target/x86_64-unknown-linux-musl/release/mtv-rusted target/
-      - uses: actions/upload-artifact@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          name: x86_64-unknown-linux-musl
-          path: target/mtv-rusted
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build (Windows)
+        run: cargo build --release --target x86_64-pc-windows-msvc --verbose
+
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: target/x86_64-pc-windows-msvc/release/mtv-rusted.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref_name }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Build (macOS)
+        run: cargo build --release --target x86_64-apple-darwin --verbose
+
+      - name: Upload macOS binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x86_64
+          path: target/x86_64-apple-darwin/release/mtv-rusted
+
+  build-musl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref_name }}
+
+      - name: Build (MUSL static binary)
+        run: |
+          docker run --rm -v "$PWD:/home/rust/src" ekidd/rust-musl-builder cargo build --release
+
+      - name: Upload MUSL binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-musl-x86_64
+          path: target/x86_64-unknown-linux-musl/release/mtv-rusted
