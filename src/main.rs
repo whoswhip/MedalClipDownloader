@@ -6,11 +6,16 @@ use std::fs::File;
 use std::io::copy;
 use std::io::{self, Write};
 use std::time::{Duration, SystemTime};
+use std::sync::OnceLock;
 
 #[derive(Deserialize, Debug)]
 struct Response {
     clips: HashMap<String, Clip>,
 }
+
+#[derive(Deserialize, Debug)]
+struct ProfileClips(pub Vec<Clip>);
+
 #[derive(Deserialize, Debug)]
 struct Clip {
     #[serde(rename = "contentType")]
@@ -46,8 +51,18 @@ struct Clip {
     created: u64,
 }
 
+pub static DOWNLOAD_DIR: &str = "downloads";
+static X_AUTHENTICATION: OnceLock<String> = OnceLock::new();
+
 fn main() {
-    println!("[1] Download a clip\n[2] Download all clips from a profile\n[3] Exit");
+    if std::fs::create_dir_all(DOWNLOAD_DIR).is_err() {
+        eprintln!("Failed to create download directory. Please check permissions.");
+        return;
+    }
+
+    println!(
+        "[1] Download a clip\n[2] Download all clips from a profile\n[3] Change download directory\n[4] Exit"
+    );
     print!("[>] ");
     io::stdout().flush().unwrap();
     loop {
@@ -57,10 +72,12 @@ fn main() {
                 download_clip();
             }
             "2" => {
-                println!("This feature is not implemented yet.");
-                // download_profile_clips();
+                download_profile_clips();
             }
             "3" => {
+                change_download_directory();
+            }
+            "4" => {
                 println!("Exiting the program. Goodbye!"); // thanks to @T4tze for the idea 
                 break;
             }
@@ -70,13 +87,15 @@ fn main() {
         }
 
         std::thread::sleep(Duration::from_millis(500));
-        println!("[1] Download a clip\n[2] Download all clips from a profile\n[3] Exit");
+        println!(
+            "[1] Download a clip\n[2] Download all clips from a profile\n[3] Change download directory\n[4] Exit"
+        );
         print!("[>] ");
         io::stdout().flush().unwrap();
     }
 }
 
-fn download_clip(){
+fn download_clip() {
     print!("Enter clip URL: ");
     io::stdout().flush().unwrap();
     let input = get_input();
@@ -103,13 +122,20 @@ fn download_clip(){
     }
 
     let clip = response.clips.values().next().unwrap();
-    let title = clip.content_title.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
-    let url = clip.get_best_url().expect("No valid URL found for the clip");
+    let title = clip
+        .content_title
+        .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+    let url = clip
+        .get_best_url()
+        .expect("No valid URL found for the clip");
     let filename = format!("{}-{}", title, clip.created);
-    let extension = if clip.content_type == 15 { ".mp4" } else { ".jpg" };
+    let extension = if clip.content_type == 15 {
+        ".mp4"
+    } else {
+        ".jpg"
+    };
 
-    download_file(url, &filename, extension, &clip.created)
-        .expect("Failed to download file");
+    download_file(url, &filename, extension, &clip.created).expect("Failed to download file");
 }
 
 fn download_file(
@@ -124,7 +150,7 @@ fn download_file(
         return Err(io::Error::new(io::ErrorKind::Other, "Download failed"));
     }
 
-    let mut file = File::create(format!("{}{}", filename, extension))?;
+    let mut file = File::create(format!("{}/{}{}", DOWNLOAD_DIR, filename, extension))?;
     copy(&mut response.bytes().unwrap().as_ref(), &mut file)?;
 
     let modified_time = SystemTime::UNIX_EPOCH + Duration::from_secs(*modified);
@@ -135,7 +161,7 @@ fn download_file(
     Ok(())
 }
 
-fn get_input () -> String {
+fn get_input() -> String {
     let mut input = String::new();
     io::stdin()
         .read_line(&mut input)
@@ -175,4 +201,95 @@ impl Clip {
             .find(|&&(url, _)| !url.is_empty())
             .map(|&(url, _)| url.as_str())
     }
+}
+
+fn change_download_directory() {
+    print!("[Directory - >] ");
+    io::stdout().flush().unwrap();
+    let new_dir = get_input();
+    if std::fs::create_dir_all(&new_dir).is_ok() {
+        println!("Download directory changed to: {}", new_dir);
+    } else {
+        eprintln!("Failed to change download directory.");
+    }
+}
+
+fn download_profile_clips() {
+    print!("Enter profile URL: ");
+    io::stdout().flush().unwrap();
+    let profile_url = get_input();
+    
+    if profile_url.is_empty() {
+        println!("Profile URL cannot be empty.");
+        return;
+    }
+    
+    if X_AUTHENTICATION.get().is_none() {
+        print!("Enter X-Authentication token: ");
+        io::stdout().flush().unwrap();
+        let x_auth = get_input();
+        if x_auth.is_empty() {
+            println!("X-Authentication token cannot be empty.");
+            return;
+        }
+        X_AUTHENTICATION.set(x_auth).unwrap();
+    }
+
+    let resp = get(&profile_url)
+        .expect("Failed to send request")
+        .text()
+        .expect("Failed to read response text");
+
+    let regex = Regex::new(r#""userId":"(\d+)""#).unwrap();
+    let user_id = regex
+        .captures(&resp)
+        .and_then(|cap| cap.get(1))
+        .map_or_else(|| {
+            eprintln!("Failed to extract user ID from profile URL.");
+            String::new()
+        }, |m| m.as_str().to_string());
+
+    if user_id.is_empty() {
+        return;
+    }
+    
+    let mut offset = 0;
+
+    loop {
+        let url = format!(
+            "https://medal.tv/api/content?userId={}&offset={}&limit=100&sortBy=publishedAt&sortDirection=DESC",
+            user_id, offset
+        );
+        let client = reqwest::blocking::Client::new();
+        let response: ProfileClips = client
+            .get(&url)
+            .header("X-Authentication", X_AUTHENTICATION.get().unwrap())
+            .send()
+            .expect("Failed to send request")
+            .json()
+            .expect("Failed to parse JSON response");
+
+        if response.0.is_empty() || response.0.len() < 100 {
+            println!("No more clips found.");
+            break;
+        }
+        for clip in &response.0 {
+            let title = clip
+                .content_title
+                .replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+            let url = clip
+                .get_best_url()
+                .expect("No valid URL found for the clip");
+            let filename = format!("{}-{}", title, clip.created);
+            let extension = if clip.content_type == 15 { ".mp4" } else { ".jpg" };
+
+            if let Err(e) = download_file(url, &filename, extension, &clip.created) {
+                eprintln!("Failed to download file: {}", e);
+            }
+        }
+        offset += 100;
+        println!("Downloaded {} clips from profile.", response.0.len());
+        std::thread::sleep(Duration::from_millis(500)); // not sure what the actual rate limit is so just being safe
+    }
+    
 }
