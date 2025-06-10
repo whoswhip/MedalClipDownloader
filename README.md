@@ -1,5 +1,6 @@
 # MedalTV Downloader Rusted
-This is a simple port of the C# downloader to rust
+MedalClipDownloader is a simple and easy to use tool to download clips and screenshots from medal.tv WITHOUT the watermark.
+
 ## How to Use
 1. Run the program.
 2. Select from the main menu:
