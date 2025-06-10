@@ -27,7 +27,7 @@ If not, get it from [https://rustup.rs](https://rustup.rs).
 
 2. **Clone the repository**  
 ```sh 
-git clone --branch mtv-rusted --single-branch https://github.com/whoswhip/MedalClipDownloader.git mtv-rusted
+git clone https://github.com/whoswhip/MedalClipDownloader.git mtv-rusted
 cd mtv-rusted
 ```
 
